@@ -9,11 +9,11 @@ import org.springframework.context.annotation.Configuration;
 import java.util.List;
 
 @Slf4j
+@Getter
 @Configuration
 public class TitleConfig {
 
     @Value("#{'${job.titles}'.split(',')}")
-    @Getter
     private List<String> jobTitles;
 
     @PostConstruct
