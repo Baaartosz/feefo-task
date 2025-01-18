@@ -6,11 +6,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Component
@@ -18,52 +15,57 @@ import java.util.Set;
 public class TokenNormaliseTitleImpl implements NormaliseTitle {
 
     private static final double MINIMUM_THRESHOLD = 0.5;
+    private static final String UNMATCHED = "";
 
     @Override
     public String normalise(String jobTitle, List<String> titles) {
-        Set<String> inputTokens = getUniqueTokens(toLowercaseTrim(jobTitle));
+        Set<String> inputTokens = tokenize(jobTitle);
 
-        String bestMatch = null;
-        double bestScore = 0.0;
+        MatchResult bestMatch = findBestMatchingTitle(inputTokens, titles);
+
+        if (bestMatch.score() < MINIMUM_THRESHOLD) {
+            throw new NoMatchException(String.format(
+                    "No match found that meets threshold %.2f. Best score was %.2f", MINIMUM_THRESHOLD, bestMatch.score()));
+        }
+
+        log.debug("Matched `{}` to `{}` with score `{}`", jobTitle, bestMatch.title(), bestMatch.score());
+        return bestMatch.title();
+    }
+
+    private MatchResult findBestMatchingTitle(Set<String> inputTokens, List<String> titles) {
+        MatchResult bestMatch = new MatchResult(UNMATCHED, 0.0);
 
         for (String title : titles) {
-            Set<String> normalisedTitleTokens = getUniqueTokens(toLowercaseTrim(title));
-            double score = computeOverlapScore(inputTokens, normalisedTitleTokens);
+            Set<String> titleTokens = tokenize(title);
+            double score = calculateScore(inputTokens, titleTokens);
 
-            if (score > bestScore) {
-                bestScore = score;
-                bestMatch = title;
+            if (score > bestMatch.score()) {
+                bestMatch = new MatchResult(title, score);
             }
         }
 
-        if (bestMatch == null || bestScore < MINIMUM_THRESHOLD) {
-            throw new NoMatchException("No match found that meets threshold "
-                    + MINIMUM_THRESHOLD + ". Best score was " + bestScore);
-        }
-        log.debug("Matched `{}` to `{}` with `{}` score", jobTitle, bestMatch, bestScore);
         return bestMatch;
     }
 
-    private static String toLowercaseTrim(String text) {
-        return text.toLowerCase().trim();
-    }
-
-    private static Set<String> getUniqueTokens(String text) {
-        if (text.isEmpty()) {
-            return Collections.emptySet();
-        }
-        return new HashSet<>(Arrays.asList(text.split("\\s+")));
-    }
-
-    private static double computeOverlapScore(Set<String> tokensA, Set<String> tokensB) {
-        if (tokensA.isEmpty() && tokensB.isEmpty()) {
+    private double calculateScore(Set<String> tokensA, Set<String> tokensB) {
+        if (tokensA.isEmpty() || tokensB.isEmpty()) {
             return 0.0;
         }
+
         Set<String> intersection = new HashSet<>(tokensA);
         intersection.retainAll(tokensB);
-        double intersectionCount = intersection.size();
-        double maxSize = Math.max(tokensA.size(), tokensB.size());
-        return intersectionCount / maxSize;
+
+        return (double) intersection.size() / Math.max(tokensA.size(), tokensB.size());
     }
 
+    private Set<String> tokenize(String text) {
+        if (text == null || text.isBlank()) {
+            return Collections.emptySet();
+        }
+        return Arrays
+                .stream(text.toLowerCase().trim().split("\\s+"))
+                .collect(Collectors.toSet());
+    }
+
+    private record MatchResult(String title, double score) { }
 }
